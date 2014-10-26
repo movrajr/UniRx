@@ -141,5 +141,6 @@
     <Compile Include="Assets\UniRx\Scripts\UnityWinRTBridge\Thread.cs" />
     <Compile Include="Assets\UniRx\Scripts\UnityWinRTBridge\ThreadPoolScheduler_UnityWinRT.cs" />
     <None Include="Assets\UniRx\ReadMe.txt" />
-  </ItemGroup>  
+  </ItemGroup>
+  <Import Project="UnityVS.CSharp.targets" />
 </Project>
