@@ -5,16 +5,14 @@ using UniRx.UI;
 using System.Collections;
 using UniRx;
 using System.Threading;
+using System.Collections.Generic;
 using System;
 using System.Text;
 using UniRx.Diagnostics;
-
-#if !(UNITY_METRO || UNITY_WP8)
-
-using Hash = System.Collections.Hashtable;
-using HashEntry = System.Collections.DictionaryEntry;
-using System.Collections.Generic;
-
+#if !(UNITY_METRO || UNITY_WP8) && (UNITY_4_3 || UNITY_4_2 || UNITY_4_1 || UNITY_4_0_1 || UNITY_4_0 || UNITY_3_5 || UNITY_3_4 || UNITY_3_3 || UNITY_3_2 || UNITY_3_1 || UNITY_3_0_0 || UNITY_3_0 || UNITY_2_6_1 || UNITY_2_6)
+    // Fallback for Unity versions below 4.5
+    using Hash = System.Collections.Hashtable;
+    using HashEntry = System.Collections.DictionaryEntry;    
 #else
 using Hash = System.Collections.Generic.Dictionary<string, string>;
 using HashEntry = System.Collections.Generic.KeyValuePair<string, string>;
@@ -44,7 +42,7 @@ namespace UniRx.ObjectTest
 
             ObservableLogger.Listener.ObserveOnMainThread().Subscribe(x =>
             {
-                text.guiText.text = x.ToString();
+                text.GetComponent<GUIText>().text = x.ToString();
             });
 
             base.Awake();
@@ -78,6 +76,9 @@ namespace UniRx.ObjectTest
 
         IDisposable yieldCancel = null;
 
+        Subscriber subscriber = new Subscriber();
+
+
         public void OnGUI()
         {
             var xpos = 0;
@@ -93,7 +94,7 @@ namespace UniRx.ObjectTest
             {
                 logger.Debug(DateTime.Now.ToString());
                 Observable.Timer(TimeSpan.FromSeconds(3))
-                    .Subscribe(x => text.guiText.text = DateTime.Now.ToString());
+                    .Subscribe(x => text.GetComponent<GUIText>().text = DateTime.Now.ToString());
             }
 
             ypos += 100;
@@ -223,6 +224,26 @@ namespace UniRx.ObjectTest
                     .Subscribe(x => logger.Debug(x));
             }
 
+            ypos += 100;
+            if (GUI.Button(new Rect(xpos, ypos, 100, 100), "Subscribe"))
+            {
+                subscriber.InitSubscriptions();
+                Debug.Log("Subscribe++ : " + subscriber.SubscriptionCount);
+            }
+
+            ypos += 100;
+            if (GUI.Button(new Rect(xpos, ypos, 100, 100), "Push"))
+            {
+                Publisher.foo();
+            }
+
+            ypos += 100;
+            if (GUI.Button(new Rect(xpos, ypos, 100, 100), "Unsubscriber"))
+            {
+                subscriber.RemoveSubscriptions();
+                Debug.Log("UnsubscribeAll : " + subscriber.SubscriptionCount);
+            }
+
             // Time
 
             var sb = new StringBuilder();
@@ -279,6 +300,54 @@ namespace UniRx.ObjectTest
             logger.Debug("first");
             yield return 1000;
             logger.Debug("second");
+        }
+
+        // Question from UnityForum  #45
+
+        public static class Publisher
+        {
+            private static readonly object _Lock = new object();
+            private static UniRx.Subject<bool> item = new UniRx.Subject<bool>();
+
+            public static UniRx.IObservable<bool> Item
+            {
+                get
+                {
+                    return item; // no needs lock
+                }
+            }
+
+            public static void foo()
+            {
+                item.OnNext(true);
+            }
+        }
+
+        public class Subscriber
+        {
+            private CompositeDisposable m_Subscriptions = new CompositeDisposable();
+
+            public int SubscriptionCount { get { return m_Subscriptions.Count; } }
+
+            public void InitSubscriptions()
+            {
+                m_Subscriptions.Add(Publisher.Item.Subscribe(UniRx.Observer.Create<bool>(result => this.HandleItem(result), ex => this.HandleError(ex), () => { })));
+            }
+
+            void HandleItem(bool args)
+            {
+                UnityEngine.Debug.Log("Received Item: " + args);
+            }
+
+            void HandleError(Exception ex)
+            {
+                UnityEngine.Debug.Log("Exception: " + ex.Message);
+            }
+
+            public void RemoveSubscriptions()
+            {
+                m_Subscriptions.Clear();
+            }
         }
     }
 }
