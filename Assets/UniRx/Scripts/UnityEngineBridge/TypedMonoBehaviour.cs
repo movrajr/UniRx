@@ -2,9 +2,11 @@
 
 namespace UniRx
 {
-    /// <summary>
-    /// If you want to use coroutine, implements like "new public IEnumerator OnMouseDown() { }".
-    /// </summary>
+    // Note: TypedMonoBehaviour and ObservableMonoBehaviour cause some performance issues.
+    // This is legacy interface.
+    // I recommend use ObservableTriggers(UniRx.Triggers) instead.
+    // More information, see github page.
+
     public class TypedMonoBehaviour : MonoBehaviour
     {
         /// <summary>Awake is called when the script instance is being loaded.</summary>
@@ -92,7 +94,7 @@ namespace UniRx
         /// <summary>This function is called after a new level was loaded.</summary>
         public virtual void OnLevelWasLoaded(int level) { }
 
-#if !UNITY_IPHONE
+#if !(UNITY_IPHONE || UNITY_ANDROID)
 
         /// <summary>OnMouseDown is called when the user has pressed the mouse button while over the GUIElement or Collider.</summary>
         public virtual void OnMouseDown() { }
@@ -171,7 +173,7 @@ namespace UniRx
         /// <summary>Update is called every frame, if the MonoBehaviour is enabled.</summary>
         public virtual void Update() { }
 
-#if !(UNITY_METRO || UNITY_WP8 || UNITY_NACL_CHROME)
+#if !(UNITY_METRO || UNITY_WP8 || UNITY_NACL_CHROME || UNITY_WEBGL)
         /// <summary>Called on the client when the connection was lost or you disconnected from the server.</summary>
         public virtual void OnDisconnectedFromServer(NetworkDisconnection info) { }
 

@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace UniRx
 {
-#if !(UNITY_METRO || UNITY_WP8) && (UNITY_4_3 || UNITY_4_2 || UNITY_4_1 || UNITY_4_0_1 || UNITY_4_0 || UNITY_3_5 || UNITY_3_4 || UNITY_3_3 || UNITY_3_2 || UNITY_3_1 || UNITY_3_0_0 || UNITY_3_0 || UNITY_2_6_1 || UNITY_2_6)
+#if !(UNITY_METRO || UNITY_WP8) && (UNITY_4_4 || UNITY_4_3 || UNITY_4_2 || UNITY_4_1 || UNITY_4_0_1 || UNITY_4_0 || UNITY_3_5 || UNITY_3_4 || UNITY_3_3 || UNITY_3_2 || UNITY_3_1 || UNITY_3_0_0 || UNITY_3_0 || UNITY_2_6_1 || UNITY_2_6)
     // Fallback for Unity versions below 4.5
     using Hash = System.Collections.Hashtable;
     using HashEntry = System.Collections.DictionaryEntry;    
@@ -49,7 +49,7 @@ namespace UniRx
 
         public static IObservable<string> Post(string url, WWWForm content, Hash headers, IProgress<float> progress = null)
         {
-            var contentHeaders = (Hash)(object)content.headers;
+            var contentHeaders = content.headers;
             return Observable.FromCoroutine<string>((observer, cancellation) => FetchText(new WWW(url, content.data, MergeHash(contentHeaders, headers)), observer, progress, cancellation));
         }
 
@@ -70,7 +70,7 @@ namespace UniRx
 
         public static IObservable<byte[]> PostAndGetBytes(string url, WWWForm content, Hash headers, IProgress<float> progress = null)
         {
-            var contentHeaders = (Hash)(object)content.headers;
+            var contentHeaders = content.headers;
             return Observable.FromCoroutine<byte[]>((observer, cancellation) => FetchBytes(new WWW(url, content.data, MergeHash(contentHeaders, headers)), observer, progress, cancellation));
         }
 
@@ -91,28 +91,61 @@ namespace UniRx
 
         public static IObservable<WWW> PostWWW(string url, WWWForm content, Hash headers, IProgress<float> progress = null)
         {
-            var contentHeaders = (Hash)(object)content.headers;
+            var contentHeaders = content.headers;
             return Observable.FromCoroutine<WWW>((observer, cancellation) => Fetch(new WWW(url, content.data, MergeHash(contentHeaders, headers)), observer, progress, cancellation));
         }
 
-        public static IObservable<WWW> LoadFromCacheOrDownload(string url, int version, IProgress<float> progress = null)
+        public static IObservable<AssetBundle> LoadFromCacheOrDownload(string url, int version, IProgress<float> progress = null)
         {
-            return Observable.FromCoroutine<WWW>((observer, cancellation) => Fetch(WWW.LoadFromCacheOrDownload(url, version), observer, progress, cancellation));
+            return Observable.FromCoroutine<AssetBundle>((observer, cancellation) => FetchAssetBundle(WWW.LoadFromCacheOrDownload(url, version), observer, progress, cancellation));
         }
 
-        public static IObservable<WWW> LoadFromCacheOrDownload(string url, int version, uint crc, IProgress<float> progress = null)
+        public static IObservable<AssetBundle> LoadFromCacheOrDownload(string url, int version, uint crc, IProgress<float> progress = null)
         {
-            return Observable.FromCoroutine<WWW>((observer, cancellation) => Fetch(WWW.LoadFromCacheOrDownload(url, version, crc), observer, progress, cancellation));
+            return Observable.FromCoroutine<AssetBundle>((observer, cancellation) => FetchAssetBundle(WWW.LoadFromCacheOrDownload(url, version, crc), observer, progress, cancellation));
         }
 
-        static Hash MergeHash(Hash source1, Hash source2)
+        // over Unity5 supports Hash128
+#if !(UNITY_4_6 || UNITY_4_5 || UNITY_4_4 || UNITY_4_3 || UNITY_4_2 || UNITY_4_1 || UNITY_4_0_1 || UNITY_4_0 || UNITY_3_5 || UNITY_3_4 || UNITY_3_3 || UNITY_3_2 || UNITY_3_1 || UNITY_3_0_0 || UNITY_3_0 || UNITY_2_6_1 || UNITY_2_6)
+        public static IObservable<AssetBundle> LoadFromCacheOrDownload(string url, Hash128 hash128, IProgress<float> progress = null)
         {
-            foreach (HashEntry item in source2)
+            return Observable.FromCoroutine<AssetBundle>((observer, cancellation) => FetchAssetBundle(WWW.LoadFromCacheOrDownload(url, hash128), observer, progress, cancellation));
+        }
+
+        public static IObservable<AssetBundle> LoadFromCacheOrDownload(string url, Hash128 hash128, uint crc, IProgress<float> progress = null)
+        {
+            return Observable.FromCoroutine<AssetBundle>((observer, cancellation) => FetchAssetBundle(WWW.LoadFromCacheOrDownload(url, hash128, crc), observer, progress, cancellation));
+        }
+#endif
+
+        // over 4.5, Hash define is Dictionary.
+        // below Unity 4.5, WWW only supports Hashtable.
+        // Unity 4.5, 4.6 WWW supports Dictionary and [Obsolete]Hashtable but WWWForm.content is Hashtable.
+        // Unity 5.0 WWW only supports Dictionary and WWWForm.content is also Dictionary.
+#if !(UNITY_METRO || UNITY_WP8) && (UNITY_4_5 || UNITY_4_6)
+        static Hash MergeHash(Hashtable wwwFormHeaders, Hash externalHeaders)
+        {
+            var newHeaders = new Hash();
+            foreach (DictionaryEntry item in wwwFormHeaders)
             {
-                source1[item.Key] = item.Value;
+                newHeaders.Add(item.Key.ToString(), item.Value.ToString());
             }
-            return source1;
+            foreach (HashEntry item in externalHeaders)
+            {
+                newHeaders.Add(item.Key, item.Value);
+            }
+            return newHeaders;
         }
+#else
+        static Hash MergeHash(Hash wwwFormHeaders, Hash externalHeaders)
+        {
+            foreach (HashEntry item in externalHeaders)
+            {
+                wwwFormHeaders[item.Key] = item.Value;
+            }
+            return wwwFormHeaders;
+        }
+#endif
 
         static IEnumerator Fetch(WWW www, IObserver<WWW> observer, IProgress<float> reportProgress, CancellationToken cancel)
         {
@@ -136,6 +169,19 @@ namespace UniRx
                 }
 
                 if (cancel.IsCancellationRequested) yield break;
+
+                if (reportProgress != null)
+                {
+                    try
+                    {
+                        reportProgress.Report(www.progress);
+                    }
+                    catch (Exception ex)
+                    {
+                        observer.OnError(ex);
+                        yield break;
+                    }
+                }
 
                 if (!string.IsNullOrEmpty(www.error))
                 {
@@ -172,6 +218,19 @@ namespace UniRx
 
                 if (cancel.IsCancellationRequested) yield break;
 
+                if (reportProgress != null)
+                {
+                    try
+                    {
+                        reportProgress.Report(www.progress);
+                    }
+                    catch (Exception ex)
+                    {
+                        observer.OnError(ex);
+                        yield break;
+                    }
+                }
+
                 if (!string.IsNullOrEmpty(www.error))
                 {
                     observer.OnError(new WWWErrorException(www));
@@ -207,6 +266,19 @@ namespace UniRx
 
                 if (cancel.IsCancellationRequested) yield break;
 
+                if (reportProgress != null)
+                {
+                    try
+                    {
+                        reportProgress.Report(www.progress);
+                    }
+                    catch (Exception ex)
+                    {
+                        observer.OnError(ex);
+                        yield break;
+                    }
+                }
+
                 if (!string.IsNullOrEmpty(www.error))
                 {
                     observer.OnError(new WWWErrorException(www));
@@ -214,6 +286,54 @@ namespace UniRx
                 else
                 {
                     observer.OnNext(www.bytes);
+                    observer.OnCompleted();
+                }
+            }
+        }
+
+        static IEnumerator FetchAssetBundle(WWW www, IObserver<AssetBundle> observer, IProgress<float> reportProgress, CancellationToken cancel)
+        {
+            using (www)
+            {
+                while (!www.isDone && !cancel.IsCancellationRequested)
+                {
+                    if (reportProgress != null)
+                    {
+                        try
+                        {
+                            reportProgress.Report(www.progress);
+                        }
+                        catch (Exception ex)
+                        {
+                            observer.OnError(ex);
+                            yield break;
+                        }
+                    }
+                    yield return null;
+                }
+
+                if (cancel.IsCancellationRequested) yield break;
+
+                if (reportProgress != null)
+                {
+                    try
+                    {
+                        reportProgress.Report(www.progress);
+                    }
+                    catch (Exception ex)
+                    {
+                        observer.OnError(ex);
+                        yield break;
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(www.error))
+                {
+                    observer.OnError(new WWWErrorException(www));
+                }
+                else
+                {
+                    observer.OnNext(www.assetBundle);
                     observer.OnCompleted();
                 }
             }
@@ -253,5 +373,3 @@ namespace UniRx
         }
     }
 }
-
-#pragma warning restore 612, 618

@@ -4,7 +4,7 @@ Created by Yoshifumi Kawai(neuecc)
 
 What is UniRx?
 ---
-UniRx(Reactive Extensions for Unity) is re-implementation of .NET Reactive Extensions. Official Rx is great but can't work on Unity and has some issue of iOS AOT. This library remove there issues and add some specified utility for Unity. Supported platforms are PC/Android/iOS/WP8/WindowsStore.   
+UniRx(Reactive Extensions for Unity) is re-implementation of .NET Reactive Extensions. Official Rx is great but can't work on Unity and has some issue of iOS AOT. This library remove there issues and add some specified utility for Unity. Supported platforms are PC/Mac/Android/iOS/WP8/WindowsStore/etc and fully supported Unity 5(and 4.6).   
 
 UniRx is available in Unity Asset Store(FREE) - http://u3d.as/content/neuecc/uni-rx-reactive-extensions-for-unity/7tT
 
@@ -28,7 +28,10 @@ Rx curing asynchronous blues like that. Rx is a library to compose asynchronous 
   
 GameLoop(every Update, OnCollisionEnter, etc), Sensor(like Kinect, Leap Motion, etc) is all of event. Rx considere event as reactive sequence which is possible to compose and perform time-based operations easily by using many LINQ query operators.
 
-Unity is single thread but UniRx helps multithreading for join, cancel, access GameObject etc.        
+Unity is single thread but UniRx helps multithreading for join, cancel, access GameObject etc.
+
+UniRx helps UI programming for uGUI. All UI events(clicked, valuechanged, etc) can convert event streams by UniRx. 
+        
 
 The Introduction
 ---
@@ -309,25 +312,25 @@ public class Test : ObservableMonoBehaviour
 
 > Note:
 > TypedMonoBehaviour and ObservableMonoBehaviour cause some performance down.
-> I don't recommend instantiate many Type/ObservableMonoBehaviour.
+> I don't recommend instantiate many Typed/ObservableMonoBehaviour.
 > If you want to observe MonoBehaviour's event, copy from ObservableMonoBehaviour and paste to your simple MonoBehaviour.
 > for example
 
 ```
-public class ObservableDestoryMonoBehaviour : MonoBehaviour
+public class ObservableCollectionEnter2DMonoBehaviour : MonoBehaviour
 {
-    Subject<Unit> onDestroy;
+    Subject<Collision2D> onCollisionEnter2D;
 
-    /// <summary>This function is called when the MonoBehaviour will be destroyed.</summary>
-    public virtual void OnDestroy()
+    /// <summary>Sent when an incoming collider makes contact with this object's collider (2D physics only).</summary>
+    public virtual void OnCollisionEnter2D(Collision2D coll)
     {
-        if (onDestroy != null) onDestroy.OnNext(Unit.Default);
+        if (onCollisionEnter2D != null) onCollisionEnter2D.OnNext(coll);
     }
 
-    /// <summary>This function is called when the MonoBehaviour will be destroyed.</summary>
-    public IObservable<Unit> OnDestroyAsObservable()
+    /// <summary>Sent when an incoming collider makes contact with this object's collider (2D physics only).</summary>
+    public IObservable<Unit> OnCollisionEnter2DAsObservable()
     {
-        return onDestroy ?? (onDestroy = new Subject<Unit>());
+        return onCollisionEnter2D ?? (onCollisionEnter2D = new Subject<Collision2D>());
     }
 }
 ```
@@ -428,21 +431,224 @@ ObserveOnMainThread()/SubscribeOnMainThread()
 // Global StartCoroutine runner
 MainThreadDispatcher.StartCoroutine(enumerator)
 
-// push value on every update time
-Observable.EveryUpdate().Subscribe();
-
-// push value on every fixedUpdate time
-Observable.EveryFixedUpdate().Subscribe();
-
-// delay on frame time
-Observable.Return(42).DelayFrame(10);
-
 // convert Coroutine to IObservable
 Observable.FromCoroutine((observer, token) => enumerator(observer, token)); 
 
 // convert IObservable to Coroutine
 yield return Observable.Range(1, 10).StartAsCoroutine();
+
+// Lifetime hooks
+Observable.EveryApplicationPause();
+Observable.EveryApplicationFocus();
+Observable.OnceApplicationQuit();
 ```
+
+Frame count based time operators
+---
+UniRx has some frame count based time operators.
+
+Method | 
+-------|
+EveryUpdate|
+EveryFixedUpdate|
+EveryEndOfFrame|
+NextFrame|
+IntervalFrame|
+TimerFrame|
+DelayFrame|
+SampleFrame|
+ThrottleFrame|
+TimeoutFrame|
+DelayFrameSubscription|
+
+For example, delayed invoke once
+
+```csharp
+Observable.TimerFrame(100).Subscribe(_ => Debug.Log("after 100 frame"));
+```
+
+uGUI Integration
+---
+UniRx can handle `UnityEvent` easily. You can use `UnityEvent.AsObservable` for register events.
+
+```csharp
+public Button MyButton;
+// ---
+MyButton.onClick.AsObservable().Subscribe(_ => Debug.Log("clicked"));
+```
+
+Event as Observable, it enables declaretive ui programming. 
+
+```csharp
+public Toggle MyToggle;
+public InputField MyInput;
+public Text MyText;
+public Slider MySlider;
+
+// On Start, you can write reactive rule for declaretive/reactive ui programming
+void Start()
+{
+    // Toggle, Input etc as Observable(OnValueChangedAsObservable is helper for provide isOn value on subscribe)
+    // SubscribeToInteractable is UniRx.UI Extension Method, same as .interactable = x)
+    MyToggle.OnValueChangedAsObservable().SubscribeToInteractable(MyButton);
+    
+    // input shows delay after 1 second
+    MyInput.OnValueChangeAsObservable()
+        .Where(x => x != null)
+        .Delay(TimeSpan.FromSeconds(1))
+        .SubscribeToText(MyText); // SubscribeToText is UniRx.UI Extension Method
+    
+    // converting for human visibility
+    MySlider.OnValueChangedAsObservable()
+        .SubscribeToText(MyText, x => Math.Round(x, 2).ToString());
+}
+````
+
+If you interested in reactive ui programming, you can see Sample12, Sample13 and below ReactiveProperty section. 
+
+ReactiveProperty, ReactiveCollection
+---
+Game's data needs notification. Do you use property and event(callback)? It's too complex. UniRx provides ReactiveProperty which is lightweight property broker.
+
+```csharp
+// Reactive Notification Model
+public class Enemy
+{
+    public ReactiveProperty<long> CurrentHp { get; private set; }
+
+    public ReactiveProperty<bool> IsDead { get; private set; }
+
+    public Enemy(int initialHp)
+    {
+        // Declarative Property
+        CurrentHp = new ReactiveProperty<long>(initialHp);
+        IsDead = CurrentHp.Select(x => x <= 0).ToReactiveProperty();
+    }
+}
+
+// ---
+// onclick, HP decrement
+MyButton.OnClickAsObservable().Subscribe(_ => enemy.CurrentHp.Value -= 99);
+// subscribe from notification model.
+enemy.CurrentHp.SubscribeToText(MyText);
+enemy.IsDead.Where(isDead => isDead == true)
+    .Subscribe(_ =>
+    {
+        MyButton.interactable = false;
+    });
+```
+
+You can combine ReactiveProperty, ReactiveCollection and UnityEvent.AsObservable. All ui elements is observable.
+
+Generic ReactiveProeprty is not inspecatble but UniRx provides specialized ReactiveProperty for use in inspector. You can use Int/LongReactiveProperty, Float/DoubleReactiveProperty, StringReactiveProperty, etc for show and editable in inspector. If you want to use Enum's ReactiveProperty, you can make custom ReactiveProperty[T] for inspecatable.
+
+`InspectorDisplayAttribute` helps readability in inspector. 
+
+![](StoreDocument/RxPropInspector.png)
+
+```csharp
+[InspectorDisplay]
+public IntReactiveProperty IntRxProp = new IntReactiveProperty(); 
+```
+
+If value is only defined from stream, it is readonly. You can use `ReadOnlyReactiveProperty`.
+
+```csharp
+public class Person
+{
+    public ReactiveProperty<string> GivenName { get; private set; }
+    public ReactiveProperty<string> FamilyName { get; private set; }
+    public ReadOnlyReactiveProperty<string> FullName { get; private set; }
+
+    public Person(string givenName, string familyName)
+    {
+        GivenName = new ReactiveProperty<string>(givenName);
+        FamilyName = new ReactiveProperty<string>(familyName);
+        // If change the givenName or familyName, notify with fullName!
+        FullName = GivenName.CombineLatest(FamilyName, (x, y) => x + " " + y).ToReadOnlyReactiveProperty();
+    }
+}
+```
+
+Model-View-(Reactive)Presenter Pattern
+---
+UniRx makes it possible to the MVP(MVRP) Pattern.
+
+![](StoreDocument/MVP_Pattern.png)
+
+Why MVP? not MVVM? Unity doesn't have binding mechanism and create a binding layer is too complex and loss the performance. But you need someone to update the View. Thus presenter know view component and updates view. Although there is no binding, Observable enables the notification subscription like binding. It calls reactive presenter. 
+
+```csharp
+// Presenter for scene(canvas) root.
+public class ReactivePresenter : MonoBehaviour
+{
+    // Presenter knows View(binded from inspector)
+    public Button MyButton;
+    public Toggle MyToggle;
+    
+    // State-Change-Events from Model by ReactiveProperty
+    Enemy enemy = new Enemy(1000);
+
+    void Start()
+    {
+        // user events from View by Rx and notify to Model in reactive 
+        MyButton.OnClickAsObservable().Subscribe(_ => enemy.CurrentHp.Value -= 99);
+        MyToggle.OnValueChangedAsObservable().SubscribeToInteractable(MyButton);
+
+        // notify from Model to Presenter by Rx and update View
+        enemy.CurrentHp.SubscribeToText(MyText);
+        enemy.IsDead.Where(isDead => isDead == true)
+            .Subscribe(_ =>
+            {
+                MyToggle.interactable = MyButton.interactable = false;
+            });
+    }
+}
+
+// Model, all property notify value changed 
+public class Enemy
+{
+    public ReactiveProperty<long> CurrentHp { get; private set; }
+
+    public ReactiveProperty<bool> IsDead { get; private set; }
+
+    public Enemy(int initialHp)
+    {
+        // Declarative Property
+        CurrentHp = new ReactiveProperty<long>(initialHp);
+        IsDead = CurrentHp.Select(x => x <= 0).ToReactiveProperty();
+    }
+}
+```
+
+View is Scene, Unity hierarchy. View to Presenter associates by Unity Engine on initialize. XxxAsObservable is created a Signal simply, no overhead. SubscribeToText and SubscribeToInteractable(like Command) is simple binding like helper.  There are simple tools but very powerful. It is natural for Unity and achieve maximum performance and clean architecture.
+
+![](StoreDocument/MVRP_Loop.png)
+
+V -> RP -> M -> RP -> V completely connected in reactive. UniRx provides all adaptor method/classes. Of course you can use with other MVVM(or MV*) framework. UniRx/ReactiveProperty is only simple toolkit. 
+
+ObservableEventTrigger
+---
+In `UniRx.UI` namespace have `ObservableEventTrigger`(note: other than this `UniRx` namespace has similar class  `ObservableStateMachineBehaviour`). ObservableEventTrigger is very useful for adhoc attach and observe UI events.
+
+```csharp
+var eventTrigger = this.gameObject.AddComponent<ObservableEventTrigger>();
+eventTrigger.OnBeginDragAsObservable()
+    .SelectMany(_ => eventTrigger.OnDragAsObservable(), (start, current) => UniRx.Tuple.Create(start, current))
+    .TakeUntil(eventTrigger.OnEndDragAsObservable())
+    .Repeat()
+    .Subscribe(x => Debug.Log(x));
+```
+
+And If you using `UniRx.UI`, all class instance can call `ObserveEveryValueChanged` method it watch chaning value in every frame.
+
+```csharp
+using UniRx.UI;
+
+// watch position change
+this.transform.ObserveEveryValueChanged(x => x.position).Subscribe(x => Debug.Log(x));
+```
+
 Samples
 ---
 see [UniRx/Examples](https://github.com/neuecc/UniRx/tree/master/Assets/UniRx/Examples)  
@@ -464,6 +670,13 @@ Observable.Range(1, 10).WrapValueToClass(); // IObservable<Tuple<int>>
 Please see [AOT Exception Patterns and Hacks](https://github.com/neuecc/UniRx/wiki/AOT-Exception-Patterns-and-Hacks).
 
 If you encount [Ran out of trampolines of type 2](http://developer.xamarin.com/guides/ios/troubleshooting/troubleshooting/) error, set AOT Compilation Options `nimt-trampolines=2048`. If you encount Ran out of trampolines of type 0, you should set AOT Compilation Options `ntrampolines=2048` too. I recommend set both for use UniRx.
+
+Windows Store/Phone App(NETFX_CORE) notice
+---
+Some interface conflicts in Windows Store App for example `UniRx.IObservable<T>` and `System.IObservable<T>`.  
+Therefore we've decided in NETFX_CORE, remove `UniRx.IObservable<T>`.  
+There is no problem if you are using the short name.  
+If you are using the full name(`UniRx.IObservable<T>`), please replace to use the short name(`IObservable<T>`).
 
 Reference
 ---
@@ -487,6 +700,10 @@ Original project home.
 
 Many Videos and slides and documents.
 
+* [ReactiveX Languages](http://reactivex.io/languages.html)
+
+UniRx is official ReacitveX language family.
+
 Help & Contribute
 ---
 Unity Forums support thread, ask me any questions - [http://forum.unity3d.com/threads/248535-UniRx-Reactive-Extensions-for-Unity](http://forum.unity3d.com/threads/248535-UniRx-Reactive-Extensions-for-Unity)  
@@ -495,6 +712,12 @@ We welcome to your contribute such as bug report, request, and pull request.
 At first, see and please write GitHub issues.  
 Source code is available in `Assets/UniRx/Scripts`.  
 This project is using Visual Studio with [UnityVS](http://unityvs.com/).
+
+Author's other Unity + LINQ Assets
+---
+[LINQ to GameObject](https://github.com/neuecc/LINQ-to-GameObject-for-Unity/) is GameObject extensions for Unity that allows traverse hierarchy and append GameObject like LINQ to XML. It's free and opensource on GitHub.
+
+![](https://raw.githubusercontent.com/neuecc/LINQ-to-GameObject-for-Unity/master/Images/axis.jpg)
 
 Author Info
 ---
